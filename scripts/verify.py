@@ -9,12 +9,10 @@ import subprocess
 import sys
 from zipfile import BadZipFile, ZipFile
 
-SOURCE_HASH = "b8382fe09858b5eabf953322ecefd0485db67c15c8e283ef083b89fc0e15892d"
-PATCHED = {
-    "classes.dex": "549cd6d391941b0b0d8a8689e7a7018b2cb5a3aa058750d829d4d4e37f69b414",
-    "AndroidManifest.xml": "3260ccb14ad984a150e7fef2469d18f3c57e5a540a98b869c9c546e7422b5dd3",
-}
+from profiles import PROFILES
+
 BUILD_TOOLS = "36.0.0"
+SOURCE_STAMP = "stamp-cert-sha256"
 
 
 def digest(stream):
@@ -24,8 +22,9 @@ def digest(stream):
 def check_source(path):
     with path.open("rb") as source:
         actual = digest(source)
-    if actual != SOURCE_HASH:
-        raise ValueError(f"Unsupported input APK. Expected {SOURCE_HASH}, got {actual}")
+    if actual not in PROFILES:
+        raise ValueError(f"Unsupported input APK (SHA-256: {actual}). See README for supported releases.")
+    return PROFILES[actual]
 
 
 def sdk_tools(sdk):
@@ -66,31 +65,34 @@ def payload(archive):
 
 
 def verify(source, candidate, tools):
-    check_source(source)
+    profile = check_source(source)
+    expected_patches = {"classes.dex": profile.dex_hash, "AndroidManifest.xml": profile.manifest_hash}
     subprocess.run([*apksigner(tools), "verify", "--verbose", "--print-certs", candidate], check=True)
     subprocess.run([zipalign(tools), "-c", "-P", "16", "4", candidate], check=True)
     with ZipFile(source) as original, ZipFile(candidate) as patched:
         names = payload(original)
+        # A rebuilt APK cannot retain the original distributor's source stamp.
+        names.discard(SOURCE_STAMP)
         if names != payload(patched):
             raise ValueError("APK payload file list differs")
         for name in sorted(names):
             if original.getinfo(name).compress_type != patched.getinfo(name).compress_type:
                 raise ValueError(f"Compression method differs: {name}")
-            if name in PATCHED:
-                expected = PATCHED[name]
+            if name in expected_patches:
+                expected = expected_patches[name]
             else:
                 with original.open(name) as entry:
                     expected = digest(entry)
             with patched.open(name) as entry:
                 if digest(entry) != expected:
                     raise ValueError(f"Unexpected contents: {name}")
-    print(f"OK: signature, ZIP alignment, {len(PATCHED)} patched entries and "
-          f"{len(names) - len(PATCHED)} original entries verified.")
+    print(f"OK: signature, ZIP alignment, {len(expected_patches)} patched entries and "
+          f"{len(names) - len(expected_patches)} original entries verified.")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, required=True, help="Original APK 1.5")
+    parser.add_argument("--input", type=Path, required=True, help="Original supported PlayLink APK")
     parser.add_argument("--apk", type=Path, required=True, help="Signed patched APK")
     parser.add_argument("--sdk", help="Android SDK directory (default: ANDROID_HOME)")
     args = parser.parse_args()

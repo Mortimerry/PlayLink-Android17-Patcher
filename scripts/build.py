@@ -11,7 +11,7 @@ from urllib.request import urlopen
 from zipfile import BadZipFile, ZipFile
 
 from manifest import remove_aspect_limit
-from verify import apksigner, check_source, digest, is_signature, jdk, sdk_tools, verify, zipalign
+from verify import SOURCE_STAMP, apksigner, check_source, digest, is_signature, jdk, sdk_tools, verify, zipalign
 
 ROOT = Path(__file__).resolve().parents[1]
 MAVEN = "https://repo.maven.apache.org/maven2/"
@@ -49,7 +49,7 @@ def dependencies(cache):
     return os.pathsep.join(jars)
 
 
-def patched_dex(work, original, tools, platform, jars):
+def patched_dex(work, original, tools, platform, jars, profile):
     rewriters = work / "rewriters"
     rewriters.mkdir()
     subprocess.run([jdk("javac"), "-cp", jars, "-d", rewriters, *sorted((ROOT / "tools").glob("*.java"))],
@@ -76,7 +76,7 @@ def patched_dex(work, original, tools, platform, jars):
                         "--release", "--min-api", "21", "--lib", platform, *d8_options,
                         "--output", helper, compiled], check=True)
         current.replace(folder / "classes.dex")
-        entry = ["BuildDex"] if stage == "service" else ["PatchStartup", stage]
+        entry = ["BuildDex"] if stage == "service" else ["PatchStartup", stage, profile.activity]
         subprocess.run([jdk("java"), "-cp", classpath, *entry], cwd=folder, check=True)
         current = folder / "fixed.dex"
     return current.read_bytes()
@@ -85,7 +85,8 @@ def patched_dex(work, original, tools, platform, jars):
 def build(args):
     source = args.input.resolve()
     output = args.output.resolve()
-    check_source(source)
+    profile = check_source(source)
+    print(f"Building {profile.title}", flush=True)
     if output.exists():
         raise ValueError(f"Output already exists: {output}")
     if not args.keystore.is_file():
@@ -103,18 +104,18 @@ def build(args):
         unsigned, aligned, signed = (work / f"{stage}.apk" for stage in ("unsigned", "aligned", "signed"))
         with ZipFile(source) as original:
             replacements = {
-                "AndroidManifest.xml": remove_aspect_limit(original.read("AndroidManifest.xml")),
-                "classes.dex": patched_dex(work, original.read("classes.dex"), tools, platform, jars),
+                "AndroidManifest.xml": remove_aspect_limit(original.read("AndroidManifest.xml"), profile),
+                "classes.dex": patched_dex(work, original.read("classes.dex"), tools, platform, jars, profile),
             }
             with ZipFile(unsigned, "x") as archive:
                 for info in original.infolist():
-                    if is_signature(info.filename):
+                    if is_signature(info.filename) or info.filename == SOURCE_STAMP:
                         continue
                     data = replacements.get(info.filename)
                     archive.writestr(copy.copy(info), original.read(info) if data is None else data)
         subprocess.run([zipalign(tools), "-P", "16", "4", unsigned, aligned], check=True)
         signing = [*apksigner(tools), "sign", "--ks", args.keystore, "--ks-key-alias", args.alias,
-                   "--v1-signer-name", "KIP", "--v4-signing-enabled", "false"]
+                   "--v4-signing-enabled", "false"]
         if "KIP_STORE_PASSWORD" in os.environ:
             signing += ["--ks-pass", "env:KIP_STORE_PASSWORD"]
         subprocess.run([*signing, "--out", signed, aligned], check=True)

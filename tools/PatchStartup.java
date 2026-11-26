@@ -16,7 +16,7 @@ import org.jf.dexlib2.writer.pool.DexPool;
 
 public final class PatchStartup {
     static final Opcodes OPS = Opcodes.forApi(21);
-    static final String ENTRY = "Lcom/playstation/knowledge/UnityPlayerActivityWithPS4Discovery;";
+    final String entry;
     static final List<String> BUNDLE = List.of("Landroid/os/Bundle;");
     static final ImmutableMethodReference PARENT = new ImmutableMethodReference(
             "Lcom/unity3d/player/UnityPlayerActivity;", "onCreate", BUNDLE, "V");
@@ -26,7 +26,8 @@ public final class PatchStartup {
     final int callIndex;
     final ImmutableMethodReference configure;
 
-    PatchStartup(String className, int parentIndex, int callIndex) {
+    PatchStartup(String activity, String className, int parentIndex, int callIndex) {
+        entry = "L" + activity.replace('.', '/') + ";";
         helper = "Lpl/kip/compat/" + className + ";";
         this.parentIndex = parentIndex;
         this.callIndex = callIndex;
@@ -47,7 +48,7 @@ public final class PatchStartup {
         DexRewriter editor = new DexRewriter(new RewriterModule() {
             public Rewriter<Method> getMethodRewriter(Rewriters rewriters) {
                 return method -> {
-                    if (!method.getDefiningClass().equals(ENTRY) || !method.getName().equals("onCreate")
+                    if (!method.getDefiningClass().equals(entry) || !method.getName().equals("onCreate")
                             || !method.getParameterTypes().equals(BUNDLE)) return method;
                     MutableMethodImplementation body = new MutableMethodImplementation(method.getImplementation());
                     if (!insert) {
@@ -72,7 +73,7 @@ public final class PatchStartup {
         for (ClassDef cls : input.getClasses()) {
             if (cls.getType().equals(helper)) {
                 if (insert) throw new IllegalStateException("Helper already present");
-            } else if (cls.getType().equals(ENTRY)) {
+            } else if (cls.getType().equals(entry)) {
                 classes.add(ImmutableClassDef.of(editor.getClassDefRewriter().rewrite(cls)));
             } else {
                 classes.add(cls);
@@ -84,8 +85,8 @@ public final class PatchStartup {
 
     public static void main(String[] args) throws Exception {
         PatchStartup patch = switch (args[0]) {
-            case "allocator" -> new PatchStartup("AllocatorLaunch", 0, 0);
-            case "display" -> new PatchStartup("CutoutLayout", 1, 2);
+            case "allocator" -> new PatchStartup(args[1], "AllocatorLaunch", 0, 0);
+            case "display" -> new PatchStartup(args[1], "CutoutLayout", 1, 2);
             default -> throw new IllegalArgumentException("Unknown startup patch");
         };
         DexFile source = read("classes.dex");
