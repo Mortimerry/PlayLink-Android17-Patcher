@@ -1,6 +1,6 @@
-# PlayLink Unity companion apps on Android 17
+# PlayLink Android 17 Patcher
 
-Build a patched PS4 companion app from your own original APK and sign it with your own key. This unofficial patcher recognizes the three releases below by SHA-256. Each build uses the same three fixes and selects the launcher and manifest edits for that release. Your APK supplies the game files.
+Build the Android 17 patches for the PS4 PlayLink companion apps **Knowledge is Power**, **Knowledge is Power: Decades**, and **That's You!** from your own original APK and sign the result with your own key. This unofficial patcher recognizes the three releases below by SHA-256. Each build uses the same three fixes and selects the launcher and manifest edits for that release. Your APK supplies the game files.
 
 The two startup fixes and the full-screen change reproduce the original Knowledge is Power patch. Decades and That's You! are test builds. Startup on Android 17, PS4 gameplay and camera layout still need device testing for those two games. Compatibility with 16 KB memory pages remains unverified for all three.
 
@@ -29,22 +29,28 @@ The [startup patch](tools/PatchStartup.java) configures the allocator before Uni
 
 ## Build from your own APK
 
-Run these PowerShell commands from the repository root. Create a directory next to the repository and place your original APK in it. The example uses Knowledge is Power 1.5. For another title, substitute its original APK path and choose a distinct output filename. The verifier takes the same original APK used for the build.
+Run these PowerShell commands from the repository root. Create a directory next to the repository and place your original APK in it. The example uses Knowledge is Power 1.5. Choose the input and output filenames for your game from the table below. The filenames are examples and the script identifies your APK by its contents. The verifier takes the same original APK used for the build.
+
+| Game | Example input filename | Example output filename |
+|---|---|---|
+| Knowledge is Power 1.5 | `original-1.5.apk` | `KiP-Android17.apk` |
+| Knowledge is Power: Decades 1.4 | `Decades-1.4.apk` | `Decades-Android17.apk` |
+| That's You! 1.6 | `Thats-You-1.6.apk` | `Thats-You-Android17.apk` |
 
 ```powershell
-New-Item -ItemType Directory -Force ../KiP-local | Out-Null
+New-Item -ItemType Directory -Force ../PlayLink-local | Out-Null
 ```
 
 If you already have an app signing key, use its keystore path and alias in the build command below. To create a new key, run the following command once. Keep the keystore and its password for future updates.
 
 ```powershell
-keytool -genkeypair -storetype PKCS12 -keystore "../KiP-local/my-key.p12" -alias kip -keyalg RSA -keysize 3072 -validity 3650
+keytool -genkeypair -storetype PKCS12 -keystore "../PlayLink-local/my-key.p12" -alias kip -keyalg RSA -keysize 3072 -validity 3650
 ```
 
 Build the APK with your key. The signing tool prompts for the password. For an automated build, you can supply the keystore password through the `KIP_STORE_PASSWORD` environment variable.
 
 ```powershell
-python scripts/build.py --input "../KiP-local/original-1.5.apk" --output "../KiP-local/KiP-Android17.apk" --keystore "../KiP-local/my-key.p12" --alias kip
+python scripts/build.py --input "../PlayLink-local/original-1.5.apk" --output "../PlayLink-local/KiP-Android17.apk" --keystore "../PlayLink-local/my-key.p12" --alias kip
 ```
 
 The script compiles the fixes, packages and aligns the APK, signs it, and verifies the result before writing it to the output path. Choose a new output filename each time. Android requires a signed APK for installation and a matching signature for updates. Modifying the APK invalidates its original signature, so the build signs it with your key. If your installed copy has a different signature, switching to your own key requires uninstalling that copy first. Uninstalling deletes the app's local data.
@@ -54,7 +60,7 @@ The script compiles the fixes, packages and aligns the APK, signs it, and verifi
 You can verify your own build or an APK you received using your original APK as a reference. This step requires neither a rebuild nor a private key.
 
 ```powershell
-python scripts/verify.py --input "../KiP-local/original-1.5.apk" --apk "../KiP-local/KiP-Android17.apk"
+python scripts/verify.py --input "../PlayLink-local/original-1.5.apk" --apk "../PlayLink-local/KiP-Android17.apk"
 ```
 
 The verifier checks the signature with `apksigner`, ZIP alignment with `zipalign`, the archive entries and their compression methods. It compares the uncompressed contents of all game resources and native libraries against the source APK. For `classes.dex` and `AndroidManifest.xml`, it uses the two pinned SHA-256 hashes in the [selected release profile](scripts/profiles.py). A mismatch returns a nonzero exit status.
@@ -70,7 +76,7 @@ OK: signature, ZIP alignment, 2 patched entries and 663 original entries verifie
 Signing with a different key changes the hash of the whole APK. To check who signed a build, compare the reported `Signer #1 certificate SHA-256 digest` with the signer's known certificate fingerprint. To display your own certificate fingerprint, run this command.
 
 ```powershell
-keytool -list -v -keystore "../KiP-local/my-key.p12" -alias kip
+keytool -list -v -keystore "../PlayLink-local/my-key.p12" -alias kip
 ```
 
 ## PS4 test checklist
